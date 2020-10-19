@@ -5,6 +5,7 @@ import com.qualcomm.hardware.bosch.JustLoggingAccelerationIntegrator;
 import com.qualcomm.robotcore.eventloop.opmode.OpMode;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
 import com.qualcomm.robotcore.hardware.DcMotor;
+import com.qualcomm.robotcore.hardware.DcMotorSimple;
 
 import org.firstinspires.ftc.robotcore.external.navigation.Acceleration;
 import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
@@ -23,12 +24,10 @@ public class field extends OpMode
     private DcMotor back_left   = null;
     private DcMotor back_right  = null;
 
-    public Orientation heading;
 
     BNO055IMU imu;
 
     Orientation angles;
-    Acceleration gravity;
 
     BNO055IMU.Parameters parameters = null;
 
@@ -44,6 +43,9 @@ public class field extends OpMode
         back_left    = hardwareMap.get(DcMotor.class, "BL");
         back_right   = hardwareMap.get(DcMotor.class, "BR");
 
+        front_left.setDirection(DcMotorSimple.Direction.REVERSE);
+        back_left.setDirection(DcMotorSimple.Direction.REVERSE);
+
         parameters = new BNO055IMU.Parameters();
         parameters.angleUnit           = BNO055IMU.AngleUnit.DEGREES;
         parameters.accelUnit           = BNO055IMU.AccelUnit.METERS_PERSEC_PERSEC;
@@ -53,16 +55,16 @@ public class field extends OpMode
         parameters.accelerationIntegrationAlgorithm = new JustLoggingAccelerationIntegrator();
 
         imu = hardwareMap.get(BNO055IMU.class,"imu");
+
+        imu.initialize(parameters);
     }
 
     @Override
     public void loop() {
 
-        // Mecanum drive is controlled with three axes: drive (front-and-back),
-        // strafe (left-and-right), and twist (rotating the whole chassis).
         double drive  = gamepad1.left_stick_y;
-        double strafe = gamepad1.left_stick_x;
-        double twist  = gamepad1.right_stick_x;
+        double strafe = -gamepad1.left_stick_x;
+        double twist  = -gamepad1.right_stick_x;
 
         angles = imu.getAngularOrientation(AxesReference.INTRINSIC, AxesOrder.ZYX, AngleUnit.DEGREES);
 
@@ -71,43 +73,17 @@ public class field extends OpMode
         float gyro_degrees = angles.firstAngle;
         float gyro_radians = gyro_degrees * pi / 180;
 
-        strafe = strafe * Math.cos(gyro_radians) - drive * Math.sin(gyro_radians);
-        drive = strafe * Math.sin(gyro_radians) + drive * Math.cos(gyro_radians);
-        /*
-         * If we had a gyro and wanted to do field-oriented control, here
-         * is where we would implement it.
-         *
-         * The idea is fairly simple; we have a robot-oriented Cartesian (x,y)
-         * coordinate (strafe, drive), and we just rotate it by the gyro
-         * reading minus the offset that we read in the init() method.
-         * Some rough pseudocode demonstrating:
-         *
-         * if Field Oriented Control:
-         *     get gyro heading
-         *     subtract initial offset from heading
-         *     convert heading to radians (if necessary)
-         *     new strafe = strafe * cos(heading) - drive * sin(heading)
-         *     new drive  = strafe * sin(heading) + drive * cos(heading)
-         *
-         * If you want more understanding on where these rotation formulas come
-         * from, refer to
-         * https://en.wikipedia.org/wiki/Rotation_(mathematics)#Two_dimensions
-         */
 
-        // You may need to multiply some of these by -1 to invert direction of
-        // the motor.  This is not an issue with the calculations themselves.
+        double newdrive = drive * Math.cos(gyro_radians) + strafe * Math.sin(gyro_radians);
+        double newstrafe = drive * Math.sin(gyro_radians) - strafe * Math.cos(gyro_radians);
+
         double[] speeds = {
-                (drive + strafe + twist),
-                (drive - strafe - twist),
-                (drive - strafe + twist),
-                (drive + strafe - twist)
+                (newdrive - newstrafe - twist),
+                (newdrive + newstrafe + twist),
+                (newdrive + newstrafe - twist),
+                (newdrive - newstrafe + twist)
         };
 
-        // Because we are adding vectors and motors only take values between
-        // [-1,1] we may need to normalize them.
-
-        // Loop through all values in the speeds[] array and find the greatest
-        // *magnitude*.  Not the greatest velocity.
         double max = Math.abs(speeds[0]);
         for(int i = 0; i < speeds.length; i++) {
             if ( max < Math.abs(speeds[i]) )
@@ -116,7 +92,7 @@ public class field extends OpMode
             }
         }
 
-        // If and only if the maximum is outside of the range we want it to be,
+        // If the maximum is outside of the range we want it to be,
         // normalize all the other speeds based on the given speed value.
         if (max > 1)
         {
@@ -126,7 +102,6 @@ public class field extends OpMode
             }
         }
 
-        // apply the calculated values to the motors.
         front_left.setPower(speeds[0]);
         front_right.setPower(speeds[1]);
         back_left.setPower(speeds[2]);
